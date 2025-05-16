@@ -1,0 +1,98 @@
+########################
+#  ---  NETWORK  ---   #
+########################
+networks:
+  reverse-proxy:
+    external: true      # created once outside this stack
+
+########################
+#  ---  VOLUMES  ---   #
+########################
+# Traefik doesn’t need ACME storage because Cloudflare does TLS,
+# so only the empty volume for dashboard state (optional).
+volumes:
+  traefik_data:
+    driver: local
+
+
+secrets:
+  cf_abprime_cert:
+    external: true
+  cf_abprime_key:
+    external: true
+  cf_khufiyaghar_cert:
+    external: true
+  cf_khufiyaghar_key:
+    external: true
+
+########################
+#  ---  SERVICE  ---   #
+########################
+services:
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: 
+      - tunnel
+      - --no-autoupdate
+      - run
+    env_file:
+      - ./.env
+    environment:
+      - TZ=Asia/Kolkata
+    networks: [reverse-proxy]
+    deploy:
+      mode: replicated
+      replicas: 2
+      restart_policy: {condition: on-failure}
+      update_config: {order: start-first}
+      labels:
+        - "traefik.enable=false"
+
+
+  traefik:
+    image: traefik:v3.4
+    command:
+      - "--entrypoints.web.address=:8000"
+      - "--entrypoints.websecure.address=:8443"
+      - "--providers.swarm.endpoint=unix:///var/run/docker.sock"
+      - "--providers.swarm.network=reverse-proxy"
+      - "--providers.swarm.exposedByDefault=false"
+      - "--providers.file.filename=/etc/traefik/tls.yml"
+      - "--api.dashboard=true"
+      - "--log.level=DEBUG"
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+    secrets:
+      - source: cf_abprime_cert
+        target: cf_abprime_cert
+      - source: cf_abprime_key
+        target: cf_abprime_key
+      - source: cf_khufiyaghar_cert
+        target: cf_khufiyaghar_cert
+      - source: cf_khufiyaghar_key
+        target: cf_khufiyaghar_key
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_data:/data
+      - ./tls.yml:/etc/traefik/tls.yml:ro
+    networks: ["reverse-proxy"]
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.traefik.rule=Host(`traefik.abprime.dev`)"
+        - "traefik.http.routers.traefik.entrypoints=websecure"
+        - "traefik.http.routers.traefik.tls=true"
+        - "traefik.http.routers.traefik.service=api@internal"
+        - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$iPM4MidI$$HhFgL/aLvGUxUSbgAvxGG0"
+        - "traefik.http.routers.traefik.middlewares=dashboard-auth"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"

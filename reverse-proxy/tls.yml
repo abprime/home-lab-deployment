@@ -1,0 +1,12 @@
+tls:
+  certificates:
+    - certFile: /run/secrets/cf_abprime_cert
+      keyFile:  /run/secrets/cf_abprime_key
+      stores:   ["default"]
+
+    - certFile: /run/secrets/cf_khufiyaghar_cert
+      keyFile:  /run/secrets/cf_khufiyaghar_key
+      stores:   ["default"]
+
+  stores:
+    default: {}

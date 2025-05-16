@@ -1,0 +1,236 @@
+################################
+#  ---  NAMED   VOLUMES  ---   #
+################################
+volumes:
+  portainer_data:
+    driver: local
+  uptime_kuma_data:
+    driver: local
+  jellyfin_config:
+    driver: local
+  nextcloud_data:
+    driver: local
+  homearr_data:
+    driver: local
+  mariadb_data:
+    driver: local
+  heimdall_data:
+    driver: local
+  redis_data:
+    driver: local
+  searxng_data:
+    driver: local
+  media:                        
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/media
+  nextcloud_media:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/media/nextcloud
+
+############################
+#  ---  NETWORKS  ---      #
+############################
+networks:
+  reverse-proxy:
+    external: true
+  internal:
+    driver: overlay
+    attachable: true
+
+############################
+#  ---  SERVICES  ---      #
+############################
+services:
+    
+  portainer:
+    image: portainer/portainer-ce:lts
+    command: -H unix:///var/run/docker.sock
+    volumes:
+      - portainer_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [reverse-proxy]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer.rule=Host(`portainer.abprime.dev`)"
+        - "traefik.http.routers.portainer.entrypoints=websecure"
+        - "traefik.http.routers.portainer.tls=true"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    volumes:
+      - uptime_kuma_data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [reverse-proxy]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.uptime.rule=Host(`uptime-kuma.abprime.dev`)"
+        - "traefik.http.routers.uptime.entrypoints=websecure"
+        - "traefik.http.routers.uptime.tls=true"
+        - "traefik.http.services.uptime.loadbalancer.server.port=3001"
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    volumes:
+      - media:/media          # shared HDD media
+      - jellyfin_config:/config
+    networks: [reverse-proxy]
+    ports:
+      - "8096:8096"
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.jellyfin.rule=Host(`jellyfin.abprime.dev`)"
+        - "traefik.http.routers.jellyfin.entrypoints=websecure"
+        - "traefik.http.routers.jellyfin.tls=true"
+        - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+
+  mariadb:
+    image: mariadb:10.11
+    env_file: .env
+    command: |
+      --transaction-isolation=READ-COMMITTED
+      --log-bin=binlog
+      --binlog-format=ROW
+      --innodb-file-per-table=1
+      --innodb-large-prefix   # required by NC on long indexes
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks: [internal]
+    deploy:
+      restart_policy: {condition: any, delay: 5s, max_attempts: 5, window: 120s}
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    volumes:
+      - redis_data:/data
+    networks: [internal]
+    deploy:
+      restart_policy: {condition: any}
+
+  nextcloud:
+    image: nextcloud:latest
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MYSQL_HOST: mariadb
+      NEXTCLOUD_TRUSTED_DOMAINS: nextcloud.abprime.dev
+    depends_on:
+      - mariadb
+      - redis
+    volumes:
+      - nextcloud_data:/var/www/html
+      - nextcloud_media:/var/www/html/data
+    networks: [reverse-proxy, internal]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.nextcloud.rule=Host(`nextcloud.abprime.dev`)"
+        - "traefik.http.routers.nextcloud.entrypoints=websecure"
+        - "traefik.http.routers.nextcloud.tls=true"
+        - "traefik.http.services.nextcloud.loadbalancer.server.port=80"
+
+  heimdall:
+    image: lscr.io/linuxserver/heimdall:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Kolkata
+      - APP_URL=https://tools.abprime.dev
+      - FORCE_HTTPS=true
+    volumes:
+      - heimdall_data:/config
+    networks: [reverse-proxy]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.heimdall.rule=Host(`tools.abprime.dev`)"
+        - "traefik.http.routers.heimdall.entrypoints=websecure"
+        - "traefik.http.routers.heimdall.tls=true"
+        - "traefik.http.services.heimdall.loadbalancer.server.port=80"
+
+  searxng:
+    image: "docker.io/searxng/searxng:latest"
+    volumes:
+      - searxng_data:/etc/searxng:rw
+    environment:
+      - PGID=1000
+      - PUID=1000
+      - SEARXNG_BASE_URL=https://search.abprime.dev
+      - SEARXNG_REDIS_URL=redis://redis:6379/0
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    networks: [reverse-proxy, internal]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.searxng.rule=Host(`search.abprime.dev`)"
+        - "traefik.http.routers.searxng.entrypoints=websecure"
+        - "traefik.http.routers.searxng.tls=true"
+        - "traefik.http.services.searxng.loadbalancer.server.port=8080"
+
+  # homearr:
+  #   image: ghcr.io/homarr-labs/homarr:latest
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - homearr_data:/app/config
+  #   networks: [reverse-proxy]
+  #   environment:
+  #     - SECRET_ENCRYPTION_KEY=b1189eaa3c001742097f65bc5b89dbff71e037d3206332c17033b3ad81b453a6
+  #   deploy:
+  #     restart_policy:
+  #       condition: any
+  #       delay: 5s
+  #       max_attempts: 5
+  #       window: 120s
+  #     labels:
+  #       - "traefik.enable=true"
+  #       - "traefik.http.routers.homearr.rule=Host(`tools.abprime.dev`)"
+  #       - "traefik.http.routers.homearr.entrypoints=web"
+  #       - "traefik.http.services.homearr.loadbalancer.server.port=7575"
