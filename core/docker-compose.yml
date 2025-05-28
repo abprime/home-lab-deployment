@@ -1,0 +1,36 @@
+version: '3.8'
+
+volumes:
+  mariadb_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  core_internal:
+    external: true
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    env_file: ../home-labs/.env
+    command: |
+      --transaction-isolation=READ-COMMITTED
+      --log-bin=binlog
+      --binlog-format=ROW
+      --innodb-file-per-table=1
+      --innodb-large-prefix
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks: [core_internal]
+    deploy:
+      restart_policy: {condition: any, delay: 5s, max_attempts: 5, window: 120s}
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    volumes:
+      - redis_data:/data
+    networks: [core_internal]
+    deploy:
+      restart_policy: {condition: any} 

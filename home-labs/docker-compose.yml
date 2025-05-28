@@ -12,11 +12,7 @@ volumes:
     driver: local
   homearr_data:
     driver: local
-  mariadb_data:
-    driver: local
   heimdall_data:
-    driver: local
-  redis_data:
     driver: local
   searxng_data:
     driver: local
@@ -39,9 +35,8 @@ volumes:
 networks:
   reverse-proxy:
     external: true
-  internal:
-    driver: overlay
-    attachable: true
+  core_internal:
+    external: true
 
 ############################
 #  ---  SERVICES  ---      #
@@ -108,29 +103,6 @@ services:
         - "traefik.http.routers.jellyfin.tls=true"
         - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
 
-  mariadb:
-    image: mariadb:10.11
-    env_file: .env
-    command: |
-      --transaction-isolation=READ-COMMITTED
-      --log-bin=binlog
-      --binlog-format=ROW
-      --innodb-file-per-table=1
-      --innodb-large-prefix   # required by NC on long indexes
-    volumes:
-      - mariadb_data:/var/lib/mysql
-    networks: [internal]
-    deploy:
-      restart_policy: {condition: any, delay: 5s, max_attempts: 5, window: 120s}
-
-  redis:
-    image: redis:7-alpine
-    command: redis-server --save "" --appendonly no
-    volumes:
-      - redis_data:/data
-    networks: [internal]
-    deploy:
-      restart_policy: {condition: any}
 
   nextcloud:
     image: nextcloud:latest
@@ -146,7 +118,7 @@ services:
     volumes:
       - nextcloud_data:/var/www/html
       - nextcloud_media:/var/www/html/data
-    networks: [reverse-proxy, internal]
+    networks: [reverse-proxy, core_internal]
     deploy:
       restart_policy:
         condition: any
@@ -201,7 +173,7 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-    networks: [reverse-proxy, internal]
+    networks: [reverse-proxy, core_internal]
     deploy:
       restart_policy:
         condition: any
