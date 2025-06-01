@@ -1,36 +1,110 @@
-version: '3.8'
-
 volumes:
-  mariadb_data:
-    driver: local
+  # mariadb_data:
+  #   driver: local
   redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin_data:
     driver: local
 
 networks:
-  core_internal:
+  core-internal:
+    external: true
+  reverse-proxy:
+    external: true
+
+secrets:
+  pgadmin_password:
+    external: true
+  postgres_password:
     external: true
 
 services:
-  mariadb:
-    image: mariadb:10.11
-    env_file: ../home-labs/.env
-    command: |
-      --transaction-isolation=READ-COMMITTED
-      --log-bin=binlog
-      --binlog-format=ROW
-      --innodb-file-per-table=1
-      --innodb-large-prefix
-    volumes:
-      - mariadb_data:/var/lib/mysql
-    networks: [core_internal]
-    deploy:
-      restart_policy: {condition: any, delay: 5s, max_attempts: 5, window: 120s}
+  # mariadb:
+  #   image: mariadb:10.11
+  #   env_file: ../home-labs/.env
+  #   command: |
+  #     --transaction-isolation=READ-COMMITTED
+  #     --log-bin=binlog
+  #     --binlog-format=ROW
+  #     --innodb-file-per-table=1
+  #     --innodb-large-prefix
+  #   volumes:
+  #     - mariadb_data:/var/lib/mysql
+  #   networks: [core-internal]
+  #   deploy:
+  #     restart_policy: {condition: any, delay: 5s, max_attempts: 5, window: 120s}
+
 
   redis:
     image: redis:7-alpine
     command: redis-server --save "" --appendonly no
     volumes:
       - redis_data:/data
-    networks: [core_internal]
+    networks: [ core-internal ]
     deploy:
-      restart_policy: {condition: any} 
+      restart_policy: { condition: any }
+
+  postgres_db:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/scripts/healthcheck.sh:/healthcheck.sh:ro
+    networks: [ core-internal ]
+    healthcheck:
+      test: [ "CMD-SHELL", "/healthcheck.sh" ]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  pg_provision:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_HOST: postgres_db
+    secrets:
+      - postgres_password
+    depends_on:
+      - postgres_db
+    volumes:
+      - ./postgres/scripts/init-multiple-dbs.sh:/init-multiple-dbs.sh:ro
+    entrypoint: [ "/bin/sh", "-c", "/init-multiple-dbs.sh" ]
+    networks: [ core-internal ]
+    deploy:
+      mode: replicated-job
+      restart_policy:
+        condition: none
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    env_file: .env
+    environment:
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_password
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json
+    networks: [ reverse-proxy, core-internal ]
+    secrets:
+      - pgadmin_password
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.abprime.dev`)"
+        - "traefik.http.routers.pgadmin.entrypoints=websecure"
+        - "traefik.http.routers.pgadmin.tls=true"
+        - "traefik.http.services.pgadmin.loadbalancer.server.port=5050"

@@ -16,7 +16,15 @@ volumes:
     driver: local
   searxng_data:
     driver: local
-  media:                        
+  ghost_mysql_data:
+    driver: local
+  ghost_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/media/ghost-blogs
+  media:
     driver: local
     driver_opts:
       type: none
@@ -35,21 +43,35 @@ volumes:
 networks:
   reverse-proxy:
     external: true
-  core_internal:
+  core-internal:
+    external: true
+  internal:
+    driver: overlay
+
+secrets:
+  postgres_password:
+    external: true
+  ghost_mysql_root_password:
+    external: true
+  ghost_db_password:
+    external: true
+
+configs:
+  ghost_cfg:
     external: true
 
 ############################
 #  ---  SERVICES  ---      #
 ############################
 services:
-    
+
   portainer:
     image: portainer/portainer-ce:lts
     command: -H unix:///var/run/docker.sock
     volumes:
       - portainer_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
-    networks: [reverse-proxy]
+    networks: [ reverse-proxy ]
     deploy:
       restart_policy:
         condition: any
@@ -68,7 +90,7 @@ services:
     volumes:
       - uptime_kuma_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [reverse-proxy]
+    networks: [ reverse-proxy ]
     deploy:
       restart_policy:
         condition: any
@@ -85,9 +107,9 @@ services:
   jellyfin:
     image: jellyfin/jellyfin:latest
     volumes:
-      - media:/media          # shared HDD media
+      - media:/media # shared HDD media
       - jellyfin_config:/config
-    networks: [reverse-proxy]
+    networks: [ reverse-proxy ]
     ports:
       - "8096:8096"
     deploy:
@@ -103,22 +125,20 @@ services:
         - "traefik.http.routers.jellyfin.tls=true"
         - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
 
-
   nextcloud:
     image: nextcloud:latest
     env_file: .env
     environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      MYSQL_HOST: mariadb
-      NEXTCLOUD_TRUSTED_DOMAINS: nextcloud.abprime.dev
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     depends_on:
-      - mariadb
+      - postgres_db
       - redis
     volumes:
       - nextcloud_data:/var/www/html
       - nextcloud_media:/var/www/html/data
-    networks: [reverse-proxy, core_internal]
+    networks: [ reverse-proxy, core-internal ]
     deploy:
       restart_policy:
         condition: any
@@ -142,7 +162,7 @@ services:
       - FORCE_HTTPS=true
     volumes:
       - heimdall_data:/config
-    networks: [reverse-proxy]
+    networks: [ reverse-proxy ]
     deploy:
       restart_policy:
         condition: any
@@ -173,7 +193,7 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-    networks: [reverse-proxy, core_internal]
+    networks: [ reverse-proxy, core-internal ]
     deploy:
       restart_policy:
         condition: any
@@ -187,6 +207,42 @@ services:
         - "traefik.http.routers.searxng.tls=true"
         - "traefik.http.services.searxng.loadbalancer.server.port=8080"
 
+  ghost_mysql:
+    image: mysql:latest
+    env_file: .ghost.env
+    environment:
+      MYSQL_PASSWORD_FILE: /run/secrets/ghost_db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/ghost_mysql_root_password
+    secrets:
+      - ghost_mysql_root_password
+      - ghost_db_password
+    volumes:
+      - ghost_mysql_data:/var/lib/mysql
+    networks: [internal]
+    deploy:
+      restart_policy:
+        condition: any
+
+  ghost:
+    image: ghost:5
+    env_file: .ghost.env
+    volumes:
+      - ghost_data:/var/lib/ghost/content
+    networks: [reverse-proxy,internal]
+    depends_on:
+      - ghost_mysql
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.ghost.rule=Host(`blog.abprime.dev`)"
+        - "traefik.http.routers.ghost.entrypoints=websecure"
+        - "traefik.http.routers.ghost.tls=true"
+        - "traefik.http.services.ghost.loadbalancer.server.port=2368"
   # homearr:
   #   image: ghcr.io/homarr-labs/homarr:latest
   #   volumes:
