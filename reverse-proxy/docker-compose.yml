@@ -59,6 +59,7 @@ services:
       - "--providers.swarm.network=reverse-proxy"
       - "--providers.swarm.exposedByDefault=false"
       - "--providers.file.filename=/etc/traefik/tls.yml"
+      - "--providers.file.directory=/etc/traefik"
       - "--api.dashboard=true"
       - "--log.level=DEBUG"
     ports:
@@ -77,6 +78,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/data
       - ./tls.yml:/etc/traefik/tls.yml:ro
+      - ./middlewares.yml:/etc/traefik/middlewares.yml:ro
     networks: ["reverse-proxy"]
     deploy:
       replicas: 1
