@@ -1,0 +1,60 @@
+
+volumes:
+  open-webui:
+    driver: local
+  litellm_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/abprime/deployments/ai/litellm
+
+networks:
+  reverse-proxy:
+    external: true
+  core-internal:
+    external: true
+
+services:
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    env_file: .litellm.env
+    command: ["--config", "/config/config.yaml"]
+    networks: [core-internal, reverse-proxy]
+    volumes:
+      - litellm_config:/config
+    depends_on:
+      - postgres_db
+      - redis
+    deploy:
+      mode: replicated
+      replicas: 3
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.litellm.rule=Host(`litellm.abprime.dev`)"
+        - "traefik.http.routers.litellm.entrypoints=websecure"
+        - "traefik.http.routers.litellm.tls=true"
+        - "traefik.http.services.litellm.loadbalancer.server.port=4000"
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    env_file: .open-webui.env
+    volumes:
+      - open-webui:/app/backend/data
+    networks: [core-internal, reverse-proxy]
+    depends_on:
+      - litellm
+      - postgres_db
+      - redis
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.open-webui.rule=Host(`chat.abprime.dev`)"
+        - "traefik.http.routers.open-webui.entrypoints=websecure"
+        - "traefik.http.routers.open-webui.tls=true"
+        - "traefik.http.services.open-webui.loadbalancer.server.port=8080"

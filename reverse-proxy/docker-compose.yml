@@ -93,6 +93,6 @@ services:
         - "traefik.http.routers.traefik.entrypoints=websecure"
         - "traefik.http.routers.traefik.tls=true"
         - "traefik.http.routers.traefik.service=api@internal"
-        - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$iPM4MidI$$HhFgL/aLvGUxUSbgAvxGG0"
+        - "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$apr1$$BXt8Fs03$$NuWsmkoXaO5dy9eC0dfi80"
         - "traefik.http.routers.traefik.middlewares=dashboard-auth"
         - "traefik.http.services.traefik.loadbalancer.server.port=8080"
