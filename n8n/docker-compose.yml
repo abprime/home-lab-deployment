@@ -19,7 +19,7 @@ networks:
     driver: overlay
 
 x-shared: &shared
-  image: docker.n8n.io/n8nio/n8n
+  image: localhost:5000/n8n:latest
   env_file: .env
   networks: [core-internal, internal]
   volumes:
@@ -37,17 +37,17 @@ services:
   n8n:
     <<: *shared
     networks: [core-internal, internal, reverse-proxy]
+    environment:
+      - N8N_DISABLE_PRODUCTION_MAIN_PROCESS=true
     deploy:
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.n8n.rule=Host(`n8n.abprime.dev`)"
         - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+        - "traefik.http.routers.n8n.priority=50"
         - "traefik.http.routers.n8n.tls=true"
-        - "traefik.http.routers.n8n.entrypoints=websecure"
-        # - "traefik.http.routers.n8n.rule=PathPrefix(`/${SUBFOLDER}{regex:$$|/.*}`)"
-        # - "traefik.http.middlewares.n8n-stripprefix.stripprefix.prefixes=/${SUBFOLDER}"
-        # - "traefik.http.routers.n8n.middlewares=n8n-stripprefix"
-        # - "traefik.http.middlewares.n8n.headers.SSLRedirect=true"
+        - "traefik.http.routers.n8n.entrypoints=websecure,web"
+        - "traefik.http.middlewares.n8n.headers.SSLRedirect=true"
         - "traefik.http.middlewares.n8n.headers.STSSeconds=315360000"
         - "traefik.http.middlewares.n8n.headers.browserXSSFilter=true"
         - "traefik.http.middlewares.n8n.headers.contentTypeNosniff=true"
@@ -59,8 +59,34 @@ services:
 
   n8n-worker:
     <<: *shared
+    networks: [core-internal, internal]
     command: worker
     depends_on:
       - n8n
     deploy:
       replicas: 3
+
+  n8n-webhook:
+    <<: *shared
+    command: webhook
+    networks: [core-internal, internal, reverse-proxy]
+    depends_on:
+      - n8n
+    deploy:
+      replicas: 2
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.n8n-webhook.rule=Host(`n8n.abprime.dev`) && PathPrefix(`/webhook/`)"
+        - "traefik.http.services.n8n-webhook.loadbalancer.server.port=5678"
+        - "traefik.http.routers.n8n-webhook.priority=100"
+        - "traefik.http.routers.n8n-webhook.tls=true"
+        - "traefik.http.routers.n8n-webhook.entrypoints=websecure,web"
+        - "traefik.http.middlewares.n8n-webhook.headers.SSLRedirect=true"
+        - "traefik.http.middlewares.n8n-webhook.headers.STSSeconds=315360000"
+        - "traefik.http.middlewares.n8n-webhook.headers.browserXSSFilter=true"
+        - "traefik.http.middlewares.n8n-webhook.headers.contentTypeNosniff=true"
+        - "traefik.http.middlewares.n8n-webhook.headers.forceSTSHeader=true"
+        - "traefik.http.middlewares.n8n-webhook.headers.SSLHost=abprime.dev"
+        - "traefik.http.middlewares.n8n-webhook.headers.STSIncludeSubdomains=true"
+        - "traefik.http.middlewares.n8n-webhook.headers.STSPreload=true"
+        - "traefik.http.routers.n8n-webhook.middlewares=n8n-webhook"
