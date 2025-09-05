@@ -64,7 +64,7 @@ services:
     depends_on:
       - n8n
     deploy:
-      replicas: 3
+      replicas: 2
 
   n8n-webhook:
     <<: *shared
@@ -73,7 +73,7 @@ services:
     depends_on:
       - n8n
     deploy:
-      replicas: 2
+      replicas: 1
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.n8n-webhook.rule=Host(`n8n.abprime.dev`) && PathPrefix(`/webhook/`)"
