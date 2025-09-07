@@ -90,3 +90,19 @@ services:
         - "traefik.http.middlewares.n8n-webhook.headers.STSIncludeSubdomains=true"
         - "traefik.http.middlewares.n8n-webhook.headers.STSPreload=true"
         - "traefik.http.routers.n8n-webhook.middlewares=n8n-webhook"
+
+
+  n8n-chromium:
+    image: ghcr.io/browserless/chromium
+    networks: [internal, reverse-proxy]
+    env_file: .env
+    deploy:
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.n8n-chromium.rule=Host(`browserless.abprime.dev`)"
+        - "traefik.http.services.n8n-chromium.loadbalancer.server.port=3000"
+        - "traefik.http.routers.n8n-chromium.priority=100"
+        - "traefik.http.routers.n8n-chromium.tls=true"
+        - "traefik.http.routers.n8n-chromium.entrypoints=websecure,web"
+        - "traefik.http.middlewares.n8n-chromium.headers.SSLRedirect=true"
