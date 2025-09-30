@@ -82,8 +82,6 @@ services:
     networks: ["reverse-proxy"]
     deploy:
       replicas: 1
-      placement:
-        constraints: [node.role == manager]
       restart_policy:
         condition: any
         delay: 5s
